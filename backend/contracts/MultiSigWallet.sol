@@ -43,9 +43,12 @@ contract MultiSigWallet is ReentrancyGuard {
     }
 
     event Deposit(address indexed sender, uint256 indexed amount);
-    event Submit(uint256 indexed txId, address indexed submitter);
-    event Approve(address indexed owner, uint256 indexed txId);
-    event Revoke(address indexed owner, uint256 indexed txId);
+    event Request(uint256 indexed txId, address indexed submitter);
+    event Approve(address indexed caller, uint256 indexed txId);
+    event Revoke(address indexed caller, uint256 indexed txId);
+    event AddOwner(address indexed caller, uint256 indexed txId, address indexed addedOwner);
+    event RemoveOwner(address indexed caller, uint256 indexed txId, address indexed removeOwner);
+    event Withdraw(address indexed to, uint256 indexed txId, address from, uint256 indexed value);
 
     modifier notExecuted(uint256 _txId) {
         require(_txId <= txId.current(), "Tx id not exists!");
@@ -72,6 +75,8 @@ contract MultiSigWallet is ReentrancyGuard {
             ownerNum[_owners[i]] = i;
         }
     }
+
+    receive() external payable {}
 
     function approve(uint256 _txId)
         external
@@ -136,7 +141,7 @@ contract MultiSigWallet is ReentrancyGuard {
 
         transactions[_txId] = transaction;
         txId.increment();
-        emit Submit(_txId, msg.sender);
+        emit Request(_txId, msg.sender);
     }
 
     function requestAddOwner(address _newOwner) external nonReentrant {
@@ -153,7 +158,7 @@ contract MultiSigWallet is ReentrancyGuard {
 
         ownerChanges[_txId] = ownerChange;
         txId.increment();
-        emit Submit(_txId, msg.sender);
+        emit Request(_txId, msg.sender);
     }
 
     function requestRemoveOwner(address _removingOwner) external nonReentrant {
@@ -171,7 +176,7 @@ contract MultiSigWallet is ReentrancyGuard {
 
         ownerChanges[_txId] = ownerChange;
         txId.increment();
-        emit Submit(_txId, msg.sender);
+        emit Request(_txId, msg.sender);
     }
 
     function deposit(
@@ -190,8 +195,13 @@ contract MultiSigWallet is ReentrancyGuard {
         isApproved(_txId)
         nonReentrant
     {
-        _safeTranfer(transactions[_txId].token, transactions[_txId].to, transactions[_txId].value);
+        address to = transactions[_txId].to;
+        address token = transactions[_txId].token;
+        uint256 value = transactions[_txId].value;
+
+        _safeTranfer(token, to, value);
         transactions[_txId].isExecuted = true;
+        emit Withdraw(to, _txId, transactions[_txId].from, value);
     }
 
     function addOwner(uint256 _txId)
@@ -208,6 +218,7 @@ contract MultiSigWallet is ReentrancyGuard {
         isOwner[newOwner] = true;
         ownerChanges[_txId].isExecuted = true;
         setRequiredApprovals();
+        emit AddOwner(msg.sender, _txId, newOwner);
     }
 
     function removeOwner(uint256 _txId)
@@ -223,9 +234,10 @@ contract MultiSigWallet is ReentrancyGuard {
         remove(ownerNum[removingOwner]);
         ownerChanges[_txId].isExecuted = true;
         setRequiredApprovals();
+        emit RemoveOwner(msg.sender, _txId, removingOwner);
     }
 
-    function remove(uint256 _index) private nonReentrant {
+    function remove(uint256 _index) private {
         uint256 length = owners.length;
         require(_index < length, "Invalid Index");
 
@@ -236,7 +248,7 @@ contract MultiSigWallet is ReentrancyGuard {
         owners.pop();
     }
 
-    function setRequiredApprovals() private nonReentrant {
+    function setRequiredApprovals() private {
         uint256 _requiredApprovals = requiredApprovals; // gas savings
 
         if (_requiredApprovals % 2 == 0) {

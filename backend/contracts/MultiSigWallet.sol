@@ -17,15 +17,27 @@ contract MultiSigWallet is ReentrancyGuard {
 
     mapping(address => bool) private isOwner;
     mapping(uint256 => Transaction) private transactions; // txId => Transaction
-    mapping(address => uint256) ownerNum;
+    mapping(uint256 => OwnerChange) private ownerChanges; // txId => Transaction
+    mapping(address => uint256) private ownerNum;
     mapping(uint256 => mapping(address => bool)) private approvals; // txId => msg.sender => bool
 
     struct Transaction {
         bool isExecuted;
         address to;
         address from;
+        address token;
         address[] approvers;
         uint256 value;
+        uint256 txId;
+        uint256 approvals;
+    }
+
+    struct OwnerChange {
+        bool isExecuted;
+        bool isAddRequest;
+        bool isRemoveRequest;
+        address changeOwner;
+        address[] approvers;
         uint256 txId;
         uint256 approvals;
     }
@@ -36,6 +48,7 @@ contract MultiSigWallet is ReentrancyGuard {
     event Revoke(address indexed owner, uint256 indexed txId);
 
     modifier notExecuted(uint256 _txId) {
+        require(_txId <= txId.current(), "Tx id not exists!");
         require(!transactions[_txId].isExecuted, "Already Executed!");
         _;
     }
@@ -46,7 +59,6 @@ contract MultiSigWallet is ReentrancyGuard {
     }
 
     modifier isApproved(uint256 _txId) {
-        require(!transactions[_txId].isExecuted, "Already Executed!");
         require(transactions[_txId].approvals >= getRequiredApprovals(), "Not allowed");
         _;
     }
@@ -79,14 +91,18 @@ contract MultiSigWallet is ReentrancyGuard {
         emit Revoke(msg.sender, _txId);
     }
 
-    function requestWithdraw(address _to, uint256 _value) external nonReentrant {
+    function requestWithdraw(
+        address _to,
+        uint256 _value,
+        address _token
+    ) external nonReentrant {
         Transaction memory transaction;
         address[] memory _approvers;
         uint256 _txId = txId.current();
 
         // isExecuted is by default false
         transaction.to = _to;
-        transaction.from = msg.sender;
+        transaction.from = address(this);
         transaction.approvers = _approvers;
         transaction.value = _value;
         transaction.txId = _txId;
@@ -114,7 +130,7 @@ contract MultiSigWallet is ReentrancyGuard {
         address _to,
         uint256 _amount
     ) external onlyOwner(msg.sender) isApproved(_txId) nonReentrant {
-        _safeTranfer(_token, _to, _amount);
+        _safeTranfer(transactions[_txId].token, transactions[_txId].to, transactions[_txId].value);
     }
 
     function _safeTranferFrom(
@@ -130,65 +146,70 @@ contract MultiSigWallet is ReentrancyGuard {
     }
 
     function requestAddOwner(address _newOwner) external nonReentrant {
-        Transaction memory transaction;
+        require(!isOwner[_newOwner], "Already owner!");
+        OwnerChange memory ownerChange;
         address[] memory _approvers;
         uint256 _txId = txId.current();
 
         // isExecuted is by default false
-        transaction.to = _newOwner;
-        transaction.from = msg.sender;
-        transaction.approvers = _approvers;
-        transaction.value = 0;
-        transaction.txId = _txId;
-        transaction.approvals = 0;
+        ownerChange.isAddRequest = true;
+        ownerChange.changeOwner = _newOwner;
+        ownerChange.approvers = _approvers;
+        ownerChange.txId = _txId;
+        ownerChange.approvals = 0;
 
-        transactions[_txId] = transaction;
+        ownerChanges[_txId] = ownerChange;
         txId.increment();
         emit Submit(_txId, msg.sender);
     }
 
-    function requestRemoveOwner(address _owner) external nonReentrant {
-        Transaction memory transaction;
+    function requestRemoveOwner(address _removingOwner) external nonReentrant {
+        require(isOwner[_removingOwner], "Not a owner already!");
+
+        OwnerChange memory ownerChange;
         address[] memory _approvers;
         uint256 _txId = txId.current();
 
         // isExecuted is by default false
-        transaction.to = _owner;
-        transaction.from = msg.sender;
-        transaction.approvers = _approvers;
-        transaction.value = 0;
-        transaction.txId = _txId;
-        transaction.approvals = 0;
+        ownerChange.isRemoveRequest = true;
+        ownerChange.changeOwner = _removingOwner;
+        ownerChange.approvers = _approvers;
+        ownerChange.txId = _txId;
+        ownerChange.approvals = 0;
 
-        transactions[_txId] = transaction;
+        ownerChanges[_txId] = ownerChange;
         txId.increment();
         emit Submit(_txId, msg.sender);
     }
 
-    function addOwner(address _newOwner, uint256 _txId)
+    function addOwner(uint256 _txId)
         external
         onlyOwner(msg.sender)
+        notExecuted(_txId)
         isApproved(_txId)
         nonReentrant
     {
-        require(!isOwner[_newOwner], "Already owner!");
-        owners.push(_newOwner);
-        ownerNum[_newOwner] = owners.length;
-        isOwner[_newOwner] = true;
-        transactions[_txId].isExecuted = true;
+        require(ownerChanges[_txId].isAddRequest, "Adding owner not requested");
+        address newOwner = ownerChanges[_txId].changeOwner;
+        owners.push(newOwner);
+        ownerNum[newOwner] = owners.length;
+        isOwner[newOwner] = true;
+        ownerChanges[_txId].isExecuted = true;
         setRequiredApprovals();
     }
 
-    function removeOwner(address _owner, uint256 _txId)
+    function removeOwner(uint256 _txId)
         external
         onlyOwner(msg.sender)
+        notExecuted(_txId)
         isApproved(_txId)
         nonReentrant
     {
-        require(isOwner[_owner], "Not a owner already!");
-        isOwner[_owner] = false;
-        remove(ownerNum[_owner]);
-        transactions[_txId].isExecuted = true;
+        require(ownerChanges[_txId].isRemoveRequest, "Removing owner not requested");
+        address removingOwner = ownerChanges[_txId].changeOwner;
+        isOwner[removingOwner] = false;
+        remove(ownerNum[removingOwner]);
+        ownerChanges[_txId].isExecuted = true;
         setRequiredApprovals();
     }
 

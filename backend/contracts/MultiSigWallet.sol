@@ -25,11 +25,10 @@ contract MultiSigWallet {
         uint256 approvals;
     }
 
-    event Deposit(address indexed sender, uint256 amount);
-    event Submit(address indexed txId);
+    event Deposit(address indexed sender, uint256 indexed amount);
+    event Submit(uint256 indexed txId, address indexed submitter);
     event Approve(address indexed owner, uint256 indexed txId);
     event Revoke(address indexed owner, uint256 indexed txId);
-    event Execute(uint256 indexed txId);
 
     modifier notExecuted(uint256 _txId) {
         require(!transactions[_txId].isExecuted, "Already Executed!");
@@ -47,13 +46,13 @@ contract MultiSigWallet {
         _;
     }
 
-
-    constructor(address[] memory _owners, uint256 _required) {
+    constructor(address[] memory _owners, uint256 _requiredApprovals) {
         owners = _owners;
-        required = _required;
+        requiredApprovals = _requiredApprovals;
 
         for (uint256 i; i > _owners.length; ++i) {
             isOwner[_owners[i]] = true;
+            ownerNum[_owners[i]] = i;
         }
     }
 
@@ -80,23 +79,6 @@ contract MultiSigWallet {
         txn.from = msg.sender;
         txn.approvers = _approvers;
         txn.value = _value;
-        txn.txId = _txId;
-        txn.approvals = 0;
-
-        txId.increment();
-        emit Submit(_txId, msg.sender);
-    }
-
-    function requestAddOwner(address _newOwner) external {
-        Transaction memory txn;
-        address[] memory _approvers;
-        uint256 _txId = txId.current();
-
-        // isExecuted is by default false
-        txn.to = _newOwner;
-        txn.from = msg.sender;
-        txn.approvers = _approvers;
-        txn.value = 0;
         txn.txId = _txId;
         txn.approvals = 0;
 
@@ -187,29 +169,7 @@ contract MultiSigWallet {
         _approvals = requiredApprovals;
     }
 
-    function submit(
-        address _to,
-        address _from,
-        uint256 _value
-    ) external {
-        Transaction memory txn;
-        address[] memory _approvers;
-
-        // isExecuted is by default false
-        txn.to = _to;
-        txn.from = _from;
-        txn.approvers = _approvers;
-        txn.value = _value;
-        txn.txId = txId.current();
-        txn.approvals = 0;
-
-        txId.increment();
-    }
-
     function deposit() external {}
 
-    function approve() external onlyOwner(msg.sender) {}
-
-    function execute(uint256 _txId) external onlyOwner(msg.sender) isAllowed(_txId) {}
-
+    function withdraw(uint256 _txId) external onlyOwner(msg.sender) isApproved(_txId) {}
 }

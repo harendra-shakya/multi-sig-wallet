@@ -9,6 +9,9 @@ contract MultiSigWallet {
     Counters.Counter private txId;
     address[] private owners;
     uint256 private requiredApprovals;
+    bytes4 private constant T_SELECTOR = bytes4(keccak256(bytes("transfer(address,uint256)")));
+    bytes4 private constant TF_SELECTOR =
+        bytes4(keccak256(bytes("transferFrom(address,address,uint256)")));
 
     mapping(address => bool) private isOwner;
     mapping(uint256 => Transaction) private transactions; // txId => Transaction
@@ -85,6 +88,33 @@ contract MultiSigWallet {
         transactions[_txId] = transaction;
         txId.increment();
         emit Submit(_txId, msg.sender);
+    }
+
+    function _safeTranfer(
+        address token,
+        address to,
+        uint256 amount
+    ) internal {
+        (bool success, bytes memory data) = token.call(
+            abi.encodeWithSelector(T_SELECTOR, to, amount)
+        );
+        require(success && (data.length == 0 || abi.decode(data, (bool))), "Transfer Failed!");
+    }
+
+    function withdraw(uint256 _txId, address _token) external onlyOwner(msg.sender) isApproved(_txId) {
+        _safeTranfer(_token, _to, amount);
+    }
+
+    function _safeTranferFrom(
+        address token,
+        address from,
+        address to,
+        uint256 amount
+    ) internal {
+        (bool success, bytes memory data) = token.call(
+            abi.encodeWithSelector(TF_SELECTOR, from, to, amount)
+        );
+        require(success && (data.length == 0 || abi.decode(data, (bool))), "Transfer Failed!");
     }
 
     function requestAddOwner(address _newOwner) external {
@@ -173,6 +203,4 @@ contract MultiSigWallet {
     }
 
     function deposit() external {}
-
-    function withdraw(uint256 _txId) external onlyOwner(msg.sender) isApproved(_txId) {}
 }

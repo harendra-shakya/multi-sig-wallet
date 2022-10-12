@@ -86,31 +86,11 @@ contract MultiSigWallet is ReentrancyGuard {
     }
 
     function revoke(uint256 _txId) external onlyOwner(msg.sender) notExecuted(_txId) nonReentrant {
-        approvals[_txId][msg.sender] = false;
-        transactions[_txId].approvals--;
+        if (approvals[_txId][msg.sender]) {
+            transactions[_txId].approvals--;
+            approvals[_txId][msg.sender] = false;
+        }
         emit Revoke(msg.sender, _txId);
-    }
-
-    function requestWithdraw(
-        address _to,
-        uint256 _value,
-        address _token
-    ) external nonReentrant {
-        Transaction memory transaction;
-        address[] memory _approvers;
-        uint256 _txId = txId.current();
-
-        // isExecuted is by default false
-        transaction.to = _to;
-        transaction.from = address(this);
-        transaction.approvers = _approvers;
-        transaction.value = _value;
-        transaction.txId = _txId;
-        transaction.approvals = 0;
-
-        transactions[_txId] = transaction;
-        txId.increment();
-        emit Submit(_txId, msg.sender);
     }
 
     function _safeTranfer(
@@ -122,15 +102,6 @@ contract MultiSigWallet is ReentrancyGuard {
             abi.encodeWithSelector(T_SELECTOR, to, amount)
         );
         require(success && (data.length == 0 || abi.decode(data, (bool))), "Transfer Failed!");
-    }
-
-    function withdraw(
-        uint256 _txId,
-        address _token,
-        address _to,
-        uint256 _amount
-    ) external onlyOwner(msg.sender) isApproved(_txId) nonReentrant {
-        _safeTranfer(transactions[_txId].token, transactions[_txId].to, transactions[_txId].value);
     }
 
     function _safeTranferFrom(
@@ -145,13 +116,35 @@ contract MultiSigWallet is ReentrancyGuard {
         require(success && (data.length == 0 || abi.decode(data, (bool))), "Transfer Failed!");
     }
 
+    function requestWithdraw(
+        address _to,
+        uint256 _value,
+        address _token
+    ) external nonReentrant {
+        Transaction memory transaction;
+        address[] memory _approvers;
+        uint256 _txId = txId.current();
+
+        // isExecuted is by default false
+        transaction.to = _to;
+        transaction.from = address(this);
+        transaction.token = _token;
+        transaction.approvers = _approvers;
+        transaction.value = _value;
+        transaction.txId = _txId;
+        transaction.approvals = 0;
+
+        transactions[_txId] = transaction;
+        txId.increment();
+        emit Submit(_txId, msg.sender);
+    }
+
     function requestAddOwner(address _newOwner) external nonReentrant {
         require(!isOwner[_newOwner], "Already owner!");
         OwnerChange memory ownerChange;
         address[] memory _approvers;
         uint256 _txId = txId.current();
 
-        // isExecuted is by default false
         ownerChange.isAddRequest = true;
         ownerChange.changeOwner = _newOwner;
         ownerChange.approvers = _approvers;
@@ -170,7 +163,6 @@ contract MultiSigWallet is ReentrancyGuard {
         address[] memory _approvers;
         uint256 _txId = txId.current();
 
-        // isExecuted is by default false
         ownerChange.isRemoveRequest = true;
         ownerChange.changeOwner = _removingOwner;
         ownerChange.approvers = _approvers;
@@ -180,6 +172,26 @@ contract MultiSigWallet is ReentrancyGuard {
         ownerChanges[_txId] = ownerChange;
         txId.increment();
         emit Submit(_txId, msg.sender);
+    }
+
+    function deposit(
+        address _token,
+        address _from,
+        address _to,
+        uint256 _value
+    ) external nonReentrant {
+        _safeTranferFrom(_token, _from, _to, _value);
+    }
+
+    function withdraw(uint256 _txId)
+        external
+        onlyOwner(msg.sender)
+        notExecuted(_txId)
+        isApproved(_txId)
+        nonReentrant
+    {
+        _safeTranfer(transactions[_txId].token, transactions[_txId].to, transactions[_txId].value);
+        transactions[_txId].isExecuted = true;
     }
 
     function addOwner(uint256 _txId)
@@ -236,6 +248,4 @@ contract MultiSigWallet is ReentrancyGuard {
     function getRequiredApprovals() public view returns (uint256 _approvals) {
         _approvals = requiredApprovals;
     }
-
-    function deposit() external nonReentrant {}
 }

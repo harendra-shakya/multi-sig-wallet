@@ -3,8 +3,10 @@
 pragma solidity ^0.8.7;
 
 import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-contract MultiSigWallet {
+contract MultiSigWallet is ReentrancyGuard {
     using Counters for Counters.Counter;
     Counters.Counter private txId;
     address[] private owners;
@@ -59,20 +61,25 @@ contract MultiSigWallet {
         }
     }
 
-    function approve(uint256 _txId) external onlyOwner(msg.sender) notExecuted(_txId) {
+    function approve(uint256 _txId)
+        external
+        onlyOwner(msg.sender)
+        notExecuted(_txId)
+        nonReentrant
+    {
         transactions[_txId].approvers.push(msg.sender);
         approvals[_txId][msg.sender] = true;
         transactions[_txId].approvals++;
         emit Approve(msg.sender, _txId);
     }
 
-    function revoke(uint256 _txId) external onlyOwner(msg.sender) notExecuted(_txId) {
+    function revoke(uint256 _txId) external onlyOwner(msg.sender) notExecuted(_txId) nonReentrant {
         approvals[_txId][msg.sender] = false;
         transactions[_txId].approvals--;
         emit Revoke(msg.sender, _txId);
     }
 
-    function requestWithdraw(address _to, uint256 _value) external {
+    function requestWithdraw(address _to, uint256 _value) external nonReentrant {
         Transaction memory transaction;
         address[] memory _approvers;
         uint256 _txId = txId.current();
@@ -101,8 +108,13 @@ contract MultiSigWallet {
         require(success && (data.length == 0 || abi.decode(data, (bool))), "Transfer Failed!");
     }
 
-    function withdraw(uint256 _txId, address _token) external onlyOwner(msg.sender) isApproved(_txId) {
-        _safeTranfer(_token, _to, amount);
+    function withdraw(
+        uint256 _txId,
+        address _token,
+        address _to,
+        uint256 _amount
+    ) external onlyOwner(msg.sender) isApproved(_txId) nonReentrant {
+        _safeTranfer(_token, _to, _amount);
     }
 
     function _safeTranferFrom(
@@ -117,7 +129,7 @@ contract MultiSigWallet {
         require(success && (data.length == 0 || abi.decode(data, (bool))), "Transfer Failed!");
     }
 
-    function requestAddOwner(address _newOwner) external {
+    function requestAddOwner(address _newOwner) external nonReentrant {
         Transaction memory transaction;
         address[] memory _approvers;
         uint256 _txId = txId.current();
@@ -135,7 +147,7 @@ contract MultiSigWallet {
         emit Submit(_txId, msg.sender);
     }
 
-    function requestRemoveOwner(address _owner) external {
+    function requestRemoveOwner(address _owner) external nonReentrant {
         Transaction memory transaction;
         address[] memory _approvers;
         uint256 _txId = txId.current();
@@ -157,6 +169,7 @@ contract MultiSigWallet {
         external
         onlyOwner(msg.sender)
         isApproved(_txId)
+        nonReentrant
     {
         require(!isOwner[_newOwner], "Already owner!");
         owners.push(_newOwner);
@@ -170,6 +183,7 @@ contract MultiSigWallet {
         external
         onlyOwner(msg.sender)
         isApproved(_txId)
+        nonReentrant
     {
         require(isOwner[_owner], "Not a owner already!");
         isOwner[_owner] = false;
@@ -178,7 +192,7 @@ contract MultiSigWallet {
         setRequiredApprovals();
     }
 
-    function remove(uint256 _index) private {
+    function remove(uint256 _index) private nonReentrant {
         uint256 length = owners.length;
         require(_index < length, "Invalid Index");
 
@@ -189,7 +203,7 @@ contract MultiSigWallet {
         owners.pop();
     }
 
-    function setRequiredApprovals() private {
+    function setRequiredApprovals() private nonReentrant {
         uint256 _requiredApprovals = requiredApprovals; // gas savings
 
         if (_requiredApprovals % 2 == 0) {
@@ -202,5 +216,5 @@ contract MultiSigWallet {
         _approvals = requiredApprovals;
     }
 
-    function deposit() external {}
+    function deposit() external nonReentrant {}
 }

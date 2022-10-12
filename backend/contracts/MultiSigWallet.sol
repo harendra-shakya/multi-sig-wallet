@@ -70,9 +70,121 @@ contract MultiSigWallet {
         emit Revoke(msg.sender, _txId);
     }
 
-    function addOwner(address _owner) external onlyOwner(msg.sender) {
-        owners.push(_owner);
-        isOwner[_owner] = true;
+    function requestWithdraw(address _to, uint256 _value) external {
+        Transaction memory txn;
+        address[] memory _approvers;
+        uint256 _txId = txId.current();
+
+        // isExecuted is by default false
+        txn.to = _to;
+        txn.from = msg.sender;
+        txn.approvers = _approvers;
+        txn.value = _value;
+        txn.txId = _txId;
+        txn.approvals = 0;
+
+        txId.increment();
+        emit Submit(_txId, msg.sender);
+    }
+
+    function requestAddOwner(address _newOwner) external {
+        Transaction memory txn;
+        address[] memory _approvers;
+        uint256 _txId = txId.current();
+
+        // isExecuted is by default false
+        txn.to = _newOwner;
+        txn.from = msg.sender;
+        txn.approvers = _approvers;
+        txn.value = 0;
+        txn.txId = _txId;
+        txn.approvals = 0;
+
+        txId.increment();
+        emit Submit(_txId, msg.sender);
+    }
+
+    function requestAddOwner(address _newOwner) external {
+        Transaction memory txn;
+        address[] memory _approvers;
+        uint256 _txId = txId.current();
+
+        // isExecuted is by default false
+        txn.to = _newOwner;
+        txn.from = msg.sender;
+        txn.approvers = _approvers;
+        txn.value = 0;
+        txn.txId = _txId;
+        txn.approvals = 0;
+
+        txId.increment();
+        emit Submit(_txId, msg.sender);
+    }
+
+    function requestRemoveOwner(address _owner) external {
+        Transaction memory txn;
+        address[] memory _approvers;
+        uint256 _txId = txId.current();
+
+        // isExecuted is by default false
+        txn.to = _owner;
+        txn.from = msg.sender;
+        txn.approvers = _approvers;
+        txn.value = 0;
+        txn.txId = _txId;
+        txn.approvals = 0;
+
+        txId.increment();
+        emit Submit(_txId, msg.sender);
+    }
+
+    function addOwner(address _newOwner, uint256 _txId)
+        external
+        onlyOwner(msg.sender)
+        isApproved(_txId)
+    {
+        require(!isOwner[_newOwner], "Already owner!");
+        owners.push(_newOwner);
+        ownerNum[_newOwner] = owners.length;
+        isOwner[_newOwner] = true;
+        transactions[_txId].isExecuted = true;
+        setRequiredApprovals();
+    }
+
+    function removeOwner(address _owner, uint256 _txId)
+        external
+        onlyOwner(msg.sender)
+        isApproved(_txId)
+    {
+        require(isOwner[_owner], "Not a owner already!");
+        isOwner[_owner] = false;
+        remove(ownerNum[_owner]);
+        transactions[_txId].isExecuted = true;
+        setRequiredApprovals();
+    }
+
+    function remove(uint256 _index) private {
+        uint256 length = owners.length;
+        require(_index < length, "Invalid Index");
+
+        for (uint256 i = _index; i < length - 1; ++i) {
+            owners[i] = owners[i + 1];
+        }
+
+        owners.pop();
+    }
+
+    function setRequiredApprovals() private {
+        uint256 _requiredApprovals = requiredApprovals; // gas savings
+
+        if (_requiredApprovals % 2 == 0) {
+            _requiredApprovals = owners.length / 2;
+            requiredApprovals = _requiredApprovals;
+        }
+    }
+
+    function getRequiredApprovals() public view returns (uint256 _approvals) {
+        _approvals = requiredApprovals;
     }
 
     function submit(

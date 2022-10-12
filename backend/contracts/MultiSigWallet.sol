@@ -8,10 +8,12 @@ contract MultiSigWallet {
     using Counters for Counters.Counter;
     Counters.Counter private txId;
     address[] private owners;
-    uint256 private required;
+    uint256 private requiredApprovals;
 
     mapping(address => bool) private isOwner;
     mapping(uint256 => Transaction) private transactions; // txId => Transaction
+    mapping(address => uint256) ownerNum;
+    mapping(uint256 => mapping(address => bool)) private approvals; // txId => msg.sender => bool
 
     struct Transaction {
         bool isExecuted;

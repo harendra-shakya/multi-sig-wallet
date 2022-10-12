@@ -57,7 +57,18 @@ contract MultiSigWallet {
         }
     }
 
-    function approve(address _owner, uint256 _txId) external onlyOwner(msg.sender) {}
+    function approve(uint256 _txId) external onlyOwner(msg.sender) notExecuted(_txId) {
+        transactions[_txId].approvers.push(msg.sender);
+        approvals[_txId][msg.sender] = true;
+        transactions[_txId].approvals++;
+        emit Approve(msg.sender, _txId);
+    }
+
+    function revoke(uint256 _txId) external onlyOwner(msg.sender) notExecuted(_txId) {
+        approvals[_txId][msg.sender] = false;
+        transactions[_txId].approvals--;
+        emit Revoke(msg.sender, _txId);
+    }
 
     function addOwner(address _owner) external onlyOwner(msg.sender) {
         owners.push(_owner);
@@ -89,5 +100,4 @@ contract MultiSigWallet {
 
     function execute(uint256 _txId) external onlyOwner(msg.sender) isAllowed(_txId) {}
 
-    function revoke(uint256 _txId) external onlyOwner(msg.sender) isAllowed(_txId) {}
 }

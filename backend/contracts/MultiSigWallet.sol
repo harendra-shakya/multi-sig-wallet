@@ -30,12 +30,7 @@ contract MultiSigWallet {
     event Execute(uint256 indexed txId);
 
     modifier notExecuted(uint256 _txId) {
-        require(transactions[_txId].isExecuted, "Already Executed!");
-        _;
-    }
-
-    modifier txIdExists(uint256 _txId) {
-        require(transactions[_txId].txId != 0, "txId not exists!");
+        require(!transactions[_txId].isExecuted, "Already Executed!");
         _;
     }
 
@@ -44,10 +39,12 @@ contract MultiSigWallet {
         _;
     }
 
-    modifier isAllowed(uint256 _txId) {
-        require(transactions[_txId].approvals >= required, "Not allowed");
+    modifier isApproved(uint256 _txId) {
+        require(!transactions[_txId].isExecuted, "Already Executed!");
+        require(transactions[_txId].approvals >= getRequiredApprovals(), "Not allowed");
         _;
     }
+
 
     constructor(address[] memory _owners, uint256 _required) {
         owners = _owners;

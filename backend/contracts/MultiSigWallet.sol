@@ -70,52 +70,55 @@ contract MultiSigWallet {
     }
 
     function requestWithdraw(address _to, uint256 _value) external {
-        Transaction memory txn;
+        Transaction memory transaction;
         address[] memory _approvers;
         uint256 _txId = txId.current();
 
         // isExecuted is by default false
-        txn.to = _to;
-        txn.from = msg.sender;
-        txn.approvers = _approvers;
-        txn.value = _value;
-        txn.txId = _txId;
-        txn.approvals = 0;
+        transaction.to = _to;
+        transaction.from = msg.sender;
+        transaction.approvers = _approvers;
+        transaction.value = _value;
+        transaction.txId = _txId;
+        transaction.approvals = 0;
 
+        transactions[_txId] = transaction;
         txId.increment();
         emit Submit(_txId, msg.sender);
     }
 
     function requestAddOwner(address _newOwner) external {
-        Transaction memory txn;
+        Transaction memory transaction;
         address[] memory _approvers;
         uint256 _txId = txId.current();
 
         // isExecuted is by default false
-        txn.to = _newOwner;
-        txn.from = msg.sender;
-        txn.approvers = _approvers;
-        txn.value = 0;
-        txn.txId = _txId;
-        txn.approvals = 0;
+        transaction.to = _newOwner;
+        transaction.from = msg.sender;
+        transaction.approvers = _approvers;
+        transaction.value = 0;
+        transaction.txId = _txId;
+        transaction.approvals = 0;
 
+        transactions[_txId] = transaction;
         txId.increment();
         emit Submit(_txId, msg.sender);
     }
 
     function requestRemoveOwner(address _owner) external {
-        Transaction memory txn;
+        Transaction memory transaction;
         address[] memory _approvers;
         uint256 _txId = txId.current();
 
         // isExecuted is by default false
-        txn.to = _owner;
-        txn.from = msg.sender;
-        txn.approvers = _approvers;
-        txn.value = 0;
-        txn.txId = _txId;
-        txn.approvals = 0;
+        transaction.to = _owner;
+        transaction.from = msg.sender;
+        transaction.approvers = _approvers;
+        transaction.value = 0;
+        transaction.txId = _txId;
+        transaction.approvals = 0;
 
+        transactions[_txId] = transaction;
         txId.increment();
         emit Submit(_txId, msg.sender);
     }

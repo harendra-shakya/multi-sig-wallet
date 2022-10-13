@@ -9,14 +9,13 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 contract MultiSigWallet is ReentrancyGuard {
     using Counters for Counters.Counter;
     Counters.Counter private txId;
+    bytes4 private constant T_SELECTOR = bytes4(keccak256(bytes("transfer(address,uint256)")));
     address[] private owners;
     uint256 private requiredApprovals;
-    bytes4 private constant T_SELECTOR = bytes4(keccak256(bytes("transfer(address,uint256)")));
 
     mapping(address => bool) private isOwner;
     mapping(uint256 => Transaction) private transactions; // txId => Transaction
-    mapping(uint256 => OwnerChange) private ownerChanges; // txId => Transaction
-    mapping(address => uint256) private ownerNum;
+    mapping(uint256 => OwnerChange) private ownerChanges; // txId => ownerChanges
     mapping(uint256 => mapping(address => bool)) private approvals; // txId => msg.sender => bool
 
     struct Transaction {
@@ -24,10 +23,8 @@ contract MultiSigWallet is ReentrancyGuard {
         address to;
         address from;
         address token;
-        address[] approvers;
         uint256 value;
         uint256 txId;
-        uint256 approvals;
     }
 
     struct OwnerChange {
@@ -35,9 +32,7 @@ contract MultiSigWallet is ReentrancyGuard {
         bool isAddRequest;
         bool isRemoveRequest;
         address changeOwner;
-        address[] approvers;
         uint256 txId;
-        uint256 approvals;
     }
 
     event Deposit(address indexed sender, uint256 indexed amount);
@@ -60,7 +55,7 @@ contract MultiSigWallet is ReentrancyGuard {
     }
 
     modifier isApproved(uint256 _txId) {
-        require(transactions[_txId].approvals >= getRequiredApprovals(), "Not allowed");
+        require(isConfimed(_txId), "Not approved yet!");
         _;
     }
 
@@ -70,7 +65,6 @@ contract MultiSigWallet is ReentrancyGuard {
 
         for (uint256 i; i > _owners.length; ++i) {
             isOwner[_owners[i]] = true;
-            ownerNum[_owners[i]] = i;
         }
     }
 
@@ -84,15 +78,12 @@ contract MultiSigWallet is ReentrancyGuard {
         notExecuted(_txId)
         nonReentrant
     {
-        transactions[_txId].approvers.push(msg.sender);
         approvals[_txId][msg.sender] = true;
-        transactions[_txId].approvals++;
         emit Approve(msg.sender, _txId);
     }
 
     function revoke(uint256 _txId) external onlyOwner(msg.sender) notExecuted(_txId) nonReentrant {
         if (approvals[_txId][msg.sender]) {
-            transactions[_txId].approvals--;
             approvals[_txId][msg.sender] = false;
         }
         emit Revoke(msg.sender, _txId);
@@ -102,7 +93,7 @@ contract MultiSigWallet is ReentrancyGuard {
         address token,
         address to,
         uint256 amount
-    ) internal {
+    ) private {
         (bool success, bytes memory data) = token.call(
             abi.encodeWithSelector(T_SELECTOR, to, amount)
         );
@@ -113,58 +104,70 @@ contract MultiSigWallet is ReentrancyGuard {
         address _to,
         uint256 _value,
         address _token
-    ) external nonReentrant {
+    ) external onlyOwner(msg.sender) nonReentrant {
         Transaction memory transaction;
-        address[] memory _approvers;
         uint256 _txId = txId.current();
 
         // isExecuted is by default false
         transaction.to = _to;
         transaction.from = address(this);
         transaction.token = _token;
-        transaction.approvers = _approvers;
         transaction.value = _value;
         transaction.txId = _txId;
-        transaction.approvals = 0;
 
         transactions[_txId] = transaction;
         txId.increment();
         emit Request(_txId, msg.sender);
     }
 
-    function requestAddOwner(address _newOwner) external nonReentrant {
+    function requestAddOwner(address _newOwner) external onlyOwner(msg.sender) nonReentrant {
         require(!isOwner[_newOwner], "Already owner!");
         OwnerChange memory ownerChange;
-        address[] memory _approvers;
         uint256 _txId = txId.current();
 
         ownerChange.isAddRequest = true;
         ownerChange.changeOwner = _newOwner;
-        ownerChange.approvers = _approvers;
         ownerChange.txId = _txId;
-        ownerChange.approvals = 0;
 
         ownerChanges[_txId] = ownerChange;
         txId.increment();
         emit Request(_txId, msg.sender);
     }
 
-    function requestRemoveOwner(address _removingOwner) external nonReentrant {
+    function requestRemoveOwner(address _removingOwner)
+        external
+        onlyOwner(msg.sender)
+        nonReentrant
+    {
         require(isOwner[_removingOwner], "Not a owner already!");
 
         OwnerChange memory ownerChange;
-        address[] memory _approvers;
         uint256 _txId = txId.current();
 
         ownerChange.isRemoveRequest = true;
         ownerChange.changeOwner = _removingOwner;
-        ownerChange.approvers = _approvers;
         ownerChange.txId = _txId;
-        ownerChange.approvals = 0;
 
         ownerChanges[_txId] = ownerChange;
         txId.increment();
         emit Request(_txId, msg.sender);
+    }
+
+    function isConfimed(uint256 _txId) public view returns (bool confirmed) {
+        uint256 num;
+        address[] memory _owners = owners; // gas savings
+
+        for (uint256 i; i > _owners.length; ++i) {
+            if (approvals[_txId][_owners[i]]) {
+                num++;
+            }
+        }
+
+        if (num >= requiredApprovals) {
+            confirmed = true;
+        } else {
+            confirmed = false;
+        }
     }
 
     function withdraw(uint256 _txId)
@@ -183,10 +186,6 @@ contract MultiSigWallet is ReentrancyGuard {
         emit Withdraw(to, _txId, transactions[_txId].from, value);
     }
 
-    function isConfimed() external {
-        // loop mapping and see how many of them confirmed
-    }
-
     function addOwner(uint256 _txId)
         external
         onlyOwner(msg.sender)
@@ -197,10 +196,8 @@ contract MultiSigWallet is ReentrancyGuard {
         require(ownerChanges[_txId].isAddRequest, "Adding owner not requested");
         address newOwner = ownerChanges[_txId].changeOwner;
         owners.push(newOwner);
-        ownerNum[newOwner] = owners.length;
         isOwner[newOwner] = true;
         ownerChanges[_txId].isExecuted = true;
-        setRequiredApprovals();
         emit AddOwner(msg.sender, _txId, newOwner);
     }
 
@@ -212,32 +209,27 @@ contract MultiSigWallet is ReentrancyGuard {
         nonReentrant
     {
         require(ownerChanges[_txId].isRemoveRequest, "Removing owner not requested");
+        address[] memory _owners = owners;
         address removingOwner = ownerChanges[_txId].changeOwner;
         isOwner[removingOwner] = false;
-        remove(ownerNum[removingOwner]);
-        ownerChanges[_txId].isExecuted = true;
-        setRequiredApprovals();
-        emit RemoveOwner(msg.sender, _txId, removingOwner);
-    }
 
-    function remove(uint256 _index) private {
-        uint256 length = owners.length;
-        require(_index < length, "Invalid Index");
-
-        for (uint256 i = _index; i < length - 1; ++i) {
-            owners[i] = owners[i + 1];
+        for (uint256 i; i < _owners.length; ++i) {
+            if (removingOwner == _owners[i]) {
+                owners[i] = _owners[_owners.length - 1];
+                break;
+            }
         }
 
         owners.pop();
+
+        ownerChanges[_txId].isExecuted = true;
+        if (requiredApprovals > owners.length) setRequiredApprovals(owners.length);
+        emit RemoveOwner(msg.sender, _txId, removingOwner);
     }
 
-    function setRequiredApprovals() private {
-        uint256 _requiredApprovals = requiredApprovals; // gas savings
-
-        if (_requiredApprovals % 2 == 0) {
-            _requiredApprovals = owners.length / 2;
-            requiredApprovals = _requiredApprovals;
-        }
+    function setRequiredApprovals(uint256 _requirement) private {
+        require(_requirement > owners.length, "Requiments is bigger than owners length");
+        requiredApprovals = _requirement;
     }
 
     function getRequiredApprovals() public view returns (uint256 _approvals) {

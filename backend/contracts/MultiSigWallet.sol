@@ -5,8 +5,9 @@ pragma solidity ^0.8.7;
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-contract MultiSigWallet is ReentrancyGuard {
+contract MultiSigWallet is ReentrancyGuard, Initializable {
     using Counters for Counters.Counter;
     Counters.Counter private txId;
     bytes4 private constant T_SELECTOR = bytes4(keccak256(bytes("transfer(address,uint256)")));
@@ -61,7 +62,19 @@ contract MultiSigWallet is ReentrancyGuard {
         _;
     }
 
-    constructor(address[] memory _owners, uint256 _requiredApprovals) {
+    // constructor(address[] memory _owners, uint256 _requiredApprovals) {
+    //     owners = _owners;
+    //     requiredApprovals = _requiredApprovals;
+
+    //     for (uint256 i; i > _owners.length; ++i) {
+    //         isOwner[_owners[i]] = true;
+    //     }
+    // }
+
+    function initialize(address[] memory _owners, uint256 _requiredApprovals)
+        external
+        initializer
+    {
         owners = _owners;
         requiredApprovals = _requiredApprovals;
 

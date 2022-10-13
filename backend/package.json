@@ -37,7 +37,7 @@
     "dependencies": {
         "@chainlink/contracts": "^0.4.1",
         "@openzeppelin/contracts": "^4.7.3",
-        "erc721a": "^4.2.2",
+        "@openzeppelin/contracts-upgradeable": "^4.8.0-rc.1",
         "dotenv": "^10.0.0"
     },
     "mocha": {

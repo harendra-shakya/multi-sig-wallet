@@ -74,6 +74,10 @@ contract MultiSigWallet is ReentrancyGuard {
         emit Deposit(msg.sender, msg.value);
     }
 
+    ///////////////////////////
+    ////    Approvals    /////
+    /////////////////////////
+
     function approve(uint256 _txId)
         external
         onlyOwner(msg.sender)
@@ -108,16 +112,9 @@ contract MultiSigWallet is ReentrancyGuard {
         }
     }
 
-    function _safeTranfer(
-        address token,
-        address to,
-        uint256 amount
-    ) private {
-        (bool success, bytes memory data) = token.call(
-            abi.encodeWithSelector(T_SELECTOR, to, amount)
-        );
-        require(success && (data.length == 0 || abi.decode(data, (bool))), "Transfer Failed!");
-    }
+    ///////////////////////////
+    ////    Requesting   /////
+    /////////////////////////
 
     function requestWithdraw(
         address _to,
@@ -208,6 +205,10 @@ contract MultiSigWallet is ReentrancyGuard {
         emit Request(_txId, msg.sender);
     }
 
+    ///////////////////////////
+    /////   Action      //////
+    /////////////////////////
+
     function withdraw(uint256 _txId)
         external
         onlyOwner(msg.sender)
@@ -218,7 +219,11 @@ contract MultiSigWallet is ReentrancyGuard {
         address to = transactions[_txId].to;
         uint256 value = transactions[_txId].value;
 
-        _safeTranfer(transactions[_txId].token, to, value);
+        (bool success, bytes memory data) = transactions[_txId].token.call(
+            abi.encodeWithSelector(T_SELECTOR, to, value)
+        );
+        require(success && (data.length == 0 || abi.decode(data, (bool))), "Transfer Failed!");
+
         transactions[_txId].isExecuted = true;
         emit Withdraw(to, _txId, transactions[_txId].from, value);
     }
@@ -289,6 +294,10 @@ contract MultiSigWallet is ReentrancyGuard {
         require(newRequirement <= owners.length, "Requiments is bigger than owners length");
         requiredApprovals = newRequirement;
     }
+
+    //////////////////////////////
+    ////   Getter Functions /////
+    ////////////////////////////
 
     function getRequiredApprovals() public view returns (uint256 _approvals) {
         _approvals = requiredApprovals;

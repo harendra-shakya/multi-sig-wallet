@@ -12,8 +12,6 @@ contract MultiSigWallet is ReentrancyGuard {
     address[] private owners;
     uint256 private requiredApprovals;
     bytes4 private constant T_SELECTOR = bytes4(keccak256(bytes("transfer(address,uint256)")));
-    bytes4 private constant TF_SELECTOR =
-        bytes4(keccak256(bytes("transferFrom(address,address,uint256)")));
 
     mapping(address => bool) private isOwner;
     mapping(uint256 => Transaction) private transactions; // txId => Transaction
@@ -76,7 +74,9 @@ contract MultiSigWallet is ReentrancyGuard {
         }
     }
 
-    receive() external payable {}
+    receive() external payable {
+        emit Deposit(msg.sender, msg.value);
+    }
 
     function approve(uint256 _txId)
         external
@@ -105,18 +105,6 @@ contract MultiSigWallet is ReentrancyGuard {
     ) internal {
         (bool success, bytes memory data) = token.call(
             abi.encodeWithSelector(T_SELECTOR, to, amount)
-        );
-        require(success && (data.length == 0 || abi.decode(data, (bool))), "Transfer Failed!");
-    }
-
-    function _safeTranferFrom(
-        address token,
-        address from,
-        address to,
-        uint256 amount
-    ) internal {
-        (bool success, bytes memory data) = token.call(
-            abi.encodeWithSelector(TF_SELECTOR, from, to, amount)
         );
         require(success && (data.length == 0 || abi.decode(data, (bool))), "Transfer Failed!");
     }
@@ -179,15 +167,6 @@ contract MultiSigWallet is ReentrancyGuard {
         emit Request(_txId, msg.sender);
     }
 
-    function deposit(
-        address _token,
-        address _from,
-        address _to,
-        uint256 _value
-    ) external nonReentrant {
-        _safeTranferFrom(_token, _from, _to, _value);
-    }
-
     function withdraw(uint256 _txId)
         external
         onlyOwner(msg.sender)
@@ -202,6 +181,10 @@ contract MultiSigWallet is ReentrancyGuard {
         _safeTranfer(token, to, value);
         transactions[_txId].isExecuted = true;
         emit Withdraw(to, _txId, transactions[_txId].from, value);
+    }
+
+    function isConfimed() external {
+        // loop mapping and see how many of them confirmed
     }
 
     function addOwner(uint256 _txId)

@@ -31,7 +31,9 @@ contract MultiSigWallet is ReentrancyGuard {
         bool isExecuted;
         bool isAddRequest;
         bool isRemoveRequest;
+        bool isRequirementRequest;
         address changeOwner;
+        uint256 newRequirement;
         uint256 txId;
     }
 
@@ -50,12 +52,12 @@ contract MultiSigWallet is ReentrancyGuard {
     }
 
     modifier onlyOwner(address _sender) {
-        require(isOwner[_sender], "Not owner");
+        require(isOwner[_sender] || _sender == address(this), "Not owner");
         _;
     }
 
     modifier isApproved(uint256 _txId) {
-        require(isConfimed(_txId), "Not approved yet!");
+        require(getIsApproved(_txId), "Not approved yet!");
         _;
     }
 
@@ -89,6 +91,23 @@ contract MultiSigWallet is ReentrancyGuard {
         emit Revoke(msg.sender, _txId);
     }
 
+    function getIsApproved(uint256 _txId) public view returns (bool confirmed) {
+        uint256 num;
+        address[] memory _owners = owners; // gas savings
+
+        for (uint256 i; i > _owners.length; ++i) {
+            if (approvals[_txId][_owners[i]]) {
+                num++;
+            }
+        }
+
+        if (num >= requiredApprovals) {
+            confirmed = true;
+        } else {
+            confirmed = false;
+        }
+    }
+
     function _safeTranfer(
         address token,
         address to,
@@ -120,7 +139,11 @@ contract MultiSigWallet is ReentrancyGuard {
         emit Request(_txId, msg.sender);
     }
 
-    function requestAddOwner(address _newOwner) external onlyOwner(msg.sender) nonReentrant {
+    function requestAddOwner(address _newOwner, uint256 _newRequirement)
+        external
+        onlyOwner(msg.sender)
+        nonReentrant
+    {
         require(!isOwner[_newOwner], "Already owner!");
         OwnerChange memory ownerChange;
         uint256 _txId = txId.current();
@@ -129,12 +152,17 @@ contract MultiSigWallet is ReentrancyGuard {
         ownerChange.changeOwner = _newOwner;
         ownerChange.txId = _txId;
 
+        if (_newRequirement != 0) {
+            ownerChange.newRequirement = _newRequirement;
+            ownerChange.isRequirementRequest = true;
+        }
+
         ownerChanges[_txId] = ownerChange;
         txId.increment();
         emit Request(_txId, msg.sender);
     }
 
-    function requestRemoveOwner(address _removingOwner)
+    function requestRemoveOwner(address _removingOwner, uint256 _newRequirement)
         external
         onlyOwner(msg.sender)
         nonReentrant
@@ -148,26 +176,36 @@ contract MultiSigWallet is ReentrancyGuard {
         ownerChange.changeOwner = _removingOwner;
         ownerChange.txId = _txId;
 
+        if (_newRequirement != 0) {
+            ownerChange.newRequirement = _newRequirement;
+            ownerChange.isRequirementRequest = true;
+        }
+
         ownerChanges[_txId] = ownerChange;
         txId.increment();
         emit Request(_txId, msg.sender);
     }
 
-    function isConfimed(uint256 _txId) public view returns (bool confirmed) {
-        uint256 num;
-        address[] memory _owners = owners; // gas savings
+    function requestRequirementChange(uint256 _newRequirement)
+        external
+        onlyOwner(msg.sender)
+        nonReentrant
+    {
+        require(
+            _newRequirement > 0 && _newRequirement <= owners.length,
+            "Invalid requiement request!"
+        );
 
-        for (uint256 i; i > _owners.length; ++i) {
-            if (approvals[_txId][_owners[i]]) {
-                num++;
-            }
-        }
+        OwnerChange memory ownerChange;
+        uint256 _txId = txId.current();
 
-        if (num >= requiredApprovals) {
-            confirmed = true;
-        } else {
-            confirmed = false;
-        }
+        ownerChange.isRequirementRequest = true;
+        ownerChange.txId = _txId;
+        ownerChange.newRequirement = _newRequirement;
+
+        ownerChanges[_txId] = ownerChange;
+        txId.increment();
+        emit Request(_txId, msg.sender);
     }
 
     function withdraw(uint256 _txId)
@@ -178,10 +216,9 @@ contract MultiSigWallet is ReentrancyGuard {
         nonReentrant
     {
         address to = transactions[_txId].to;
-        address token = transactions[_txId].token;
         uint256 value = transactions[_txId].value;
 
-        _safeTranfer(token, to, value);
+        _safeTranfer(transactions[_txId].token, to, value);
         transactions[_txId].isExecuted = true;
         emit Withdraw(to, _txId, transactions[_txId].from, value);
     }
@@ -195,7 +232,13 @@ contract MultiSigWallet is ReentrancyGuard {
     {
         require(ownerChanges[_txId].isAddRequest, "Adding owner not requested");
         address newOwner = ownerChanges[_txId].changeOwner;
+        uint256 newRequirement = ownerChanges[_txId].newRequirement;
         owners.push(newOwner);
+
+        if (newRequirement != 0) {
+            setRequiredApprovals(_txId);
+        }
+
         isOwner[newOwner] = true;
         ownerChanges[_txId].isExecuted = true;
         emit AddOwner(msg.sender, _txId, newOwner);
@@ -211,6 +254,7 @@ contract MultiSigWallet is ReentrancyGuard {
         require(ownerChanges[_txId].isRemoveRequest, "Removing owner not requested");
         address[] memory _owners = owners;
         address removingOwner = ownerChanges[_txId].changeOwner;
+        uint256 newRequirement = ownerChanges[_txId].newRequirement;
         isOwner[removingOwner] = false;
 
         for (uint256 i; i < _owners.length; ++i) {
@@ -222,14 +266,28 @@ contract MultiSigWallet is ReentrancyGuard {
 
         owners.pop();
 
+        if (newRequirement != 0) {
+            setRequiredApprovals(_txId);
+        } else {
+            if (requiredApprovals > owners.length) setRequiredApprovals(owners.length);
+        }
+
         ownerChanges[_txId].isExecuted = true;
-        if (requiredApprovals > owners.length) setRequiredApprovals(owners.length);
         emit RemoveOwner(msg.sender, _txId, removingOwner);
     }
 
-    function setRequiredApprovals(uint256 _requirement) private {
-        require(_requirement > owners.length, "Requiments is bigger than owners length");
-        requiredApprovals = _requirement;
+    function setRequiredApprovals(uint256 _txId)
+        public
+        onlyOwner(msg.sender)
+        notExecuted(_txId)
+        isApproved(_txId)
+        nonReentrant
+    {
+        require(ownerChanges[_txId].isRequirementRequest, "Changing requirement not requested");
+        uint256 newRequirement = ownerChanges[_txId].newRequirement;
+        require(newRequirement > 0, "Required approvals can't be zero");
+        require(newRequirement <= owners.length, "Requiments is bigger than owners length");
+        requiredApprovals = newRequirement;
     }
 
     function getRequiredApprovals() public view returns (uint256 _approvals) {
